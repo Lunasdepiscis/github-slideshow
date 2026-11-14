@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111318">
+<title>Sound Pads</title>
+<style>
+  :root { --bg: #111318; --panel: #1c1f26; --text: #f2f3f5; --muted: #9aa0ab; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; gap: 12px; }
+  h1 { margin: 0; font-size: 1.25rem; letter-spacing: .02em; }
+  .actions { display: flex; gap: 8px; }
+  button { font: inherit; cursor: pointer; }
+  .btn { background: var(--panel); color: var(--text); border: 1px solid #2c313b;
+    border-radius: 10px; padding: 8px 14px; }
+  .btn.active { background: var(--text); color: var(--bg); }
+  .btn.primary { background: #4f8cff; border-color: #4f8cff; color: #fff; }
+  .btn.danger { color: #ff6b6b; }
+  main { flex: 1; display: grid; grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(3, 1fr); gap: 14px; padding: 0 16px 16px; min-height: 0; }
+  @media (min-width: 700px) and (min-aspect-ratio: 4/3) {
+    main { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); }
+  }
+  .pad { position: relative; border: none; border-radius: 18px; color: #fff;
+    background: var(--c); display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 6px; padding: 12px; min-height: 90px;
+    box-shadow: 0 6px 0 color-mix(in srgb, var(--c) 55%, black), 0 10px 24px rgba(0,0,0,.35);
+    transition: transform .06s ease, box-shadow .06s ease, filter .15s; user-select: none;
+    touch-action: manipulation; overflow: hidden; }
+  .pad:active, .pad.hit { transform: translateY(4px);
+    box-shadow: 0 2px 0 color-mix(in srgb, var(--c) 55%, black), 0 4px 12px rgba(0,0,0,.35); }
+  .pad.playing { filter: brightness(1.2); }
+  .pad.empty { opacity: .55; }
+  .pad .name { font-size: clamp(1rem, 3.5vw, 1.5rem); font-weight: 700; text-align: center;
+    text-shadow: 0 1px 3px rgba(0,0,0,.35); word-break: break-word; }
+  .pad .sub { font-size: .8rem; opacity: .85; }
+  .pad .progress { position: absolute; left: 0; bottom: 0; height: 5px; width: 0;
+    background: rgba(255,255,255,.85); }
+  body.editing .pad { outline: 3px dashed rgba(255,255,255,.6); outline-offset: -8px; }
+  body.editing .pad .sub::before { content: "✎ "; }
+
+  dialog { border: none; border-radius: 16px; background: var(--panel); color: var(--text);
+    width: min(92vw, 420px); padding: 20px; }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  dialog h2 { margin: 0 0 14px; font-size: 1.1rem; }
+  label { display: block; font-size: .85rem; color: var(--muted); margin: 12px 0 6px; }
+  input[type=text] { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #2c313b;
+    background: var(--bg); color: var(--text); font: inherit; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+  .swatch { width: 34px; height: 34px; border-radius: 50%; border: 3px solid transparent; background: var(--c); }
+  .swatch.sel { border-color: #fff; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .file-info { font-size: .85rem; color: var(--muted); margin-top: 8px; min-height: 1.2em; }
+  .footer { display: flex; justify-content: space-between; gap: 8px; margin-top: 20px; }
+  .rec { color: #ff6b6b; }
+  .hint { text-align: center; color: var(--muted); font-size: .8rem; padding: 0 16px 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎛️ Sound Pads</h1>
+  <div class="actions">
+    <button class="btn" id="stopAll" title="Detener todo">⏹ Parar</button>
+    <button class="btn" id="editToggle">✎ Editar</button>
+  </div>
+</header>
+<main id="grid"></main>
+<div class="hint" id="hint">Pulsa «Editar» y toca un pad para asignarle un nombre, un color y un sonido.</div>
+
+<dialog id="editor">
+  <form method="dialog" id="editorForm">
+    <h2 id="editorTitle">Editar pad</h2>
+    <label for="padName">Nombre</label>
+    <input type="text" id="padName" maxlength="30" placeholder="Ej: Aplausos">
+    <label>Color</label>
+    <div class="swatches" id="swatches"></div>
+    <label>Sonido</label>
+    <div class="row">
+      <button type="button" class="btn" id="pickFile">📁 Elegir archivo</button>
+      <button type="button" class="btn" id="recordBtn">🎙️ Grabar</button>
+      <button type="button" class="btn" id="previewBtn">▶ Probar</button>
+      <button type="button" class="btn danger" id="clearSound">🗑 Quitar</button>
+    </div>
+    <input type="file" id="fileInput" accept="audio/*" hidden>
+    <div class="file-info" id="fileInfo"></div>
+    <div class="footer">
+      <button type="button" class="btn" id="cancelBtn">Cancelar</button>
+      <button type="submit" class="btn primary" id="saveBtn">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(() => {
+  const PAD_COUNT = 6;
+  const COLORS = ['#ff4d6d', '#ff9f1c', '#ffd23f', '#2ec4b6', '#3a86ff', '#8338ec',
+                  '#06d6a0', '#ef476f', '#118ab2', '#f72585', '#6c757d', '#e76f51'];
+  const DEFAULT_NAMES = ['Pad 1', 'Pad 2', 'Pad 3', 'Pad 4', 'Pad 5', 'Pad 6'];
+
+  // ---------- IndexedDB storage (persists names, colors and audio files) ----------
+  const dbReady = new Promise((resolve, reject) => {
+    const req = indexedDB.open('sound-pads', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('pads', { keyPath: 'id' });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  async function dbGetAll() {
+    const db = await dbReady;
+    return new Promise((res, rej) => {
+      const r = db.transaction('pads').objectStore('pads').getAll();
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    });
+  }
+  async function dbPut(pad) {
+    const db = await dbReady;
+    return new Promise((res, rej) => {
+      const tx = db.transaction('pads', 'readwrite');
+      tx.objectStore('pads').put(pad);
+      tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+  }
+
+  // ---------- Audio (Web Audio for low latency) ----------
+  let ctx;
+  const buffers = {};   // id -> AudioBuffer
+  const sources = {};   // id -> active AudioBufferSourceNode
+  function audioCtx() {
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+  async function decode(blob) {
+    const data = await blob.arrayBuffer();
+    return new Promise((res, rej) => audioCtx().decodeAudioData(data, res, rej));
+  }
+  function stop(id) {
+    if (sources[id]) { try { sources[id].stop(); } catch (e) {} delete sources[id]; }
+  }
+  function play(id, buffer, onEnd) {
+    stop(id);
+    const src = audioCtx().createBufferSource();
+    src.buffer = buffer;
+    src.connect(ctx.destination);
+    src.onended = () => { if (sources[id] === src) delete sources[id]; onEnd && onEnd(); };
+    src.start();
+    sources[id] = src;
+    return src;
+  }
+
+  // ---------- State ----------
+  let pads = [];
+  let editing = false;
+  const grid = document.getElementById('grid');
+
+  function fmtDur(s) { return s < 60 ? s.toFixed(1) + ' s' : Math.floor(s / 60) + ':' + String(Math.round(s % 60)).padStart(2, '0'); }
+
+  function render() {
+    grid.innerHTML = '';
+    pads.forEach(p => {
+      const el = document.createElement('button');
+      el.className = 'pad' + (p.blob ? '' : ' empty');
+      el.style.setProperty('--c', p.color);
+      el.dataset.id = p.id;
+      const buf = buffers[p.id];
+      el.innerHTML = `<span class="name"></span><span class="sub"></span><span class="progress"></span>`;
+      el.querySelector('.name').textContent = p.name || DEFAULT_NAMES[p.id];
+      el.querySelector('.sub').textContent = editing ? 'Toca para editar'
+        : (p.blob ? (buf ? fmtDur(buf.duration) : 'Cargando…') : 'Sin sonido');
+      el.addEventListener('pointerdown', e => { if (!editing) { e.preventDefault(); trigger(p.id, el); } });
+      el.addEventListener('click', () => { if (editing) openEditor(p.id); });
+      el.addEventListener('keydown', e => { if (!editing && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); trigger(p.id, el); } });
+      grid.appendChild(el);
+    });
+  }
+
+  function trigger(id, el) {
+    const buf = buffers[id];
+    el.classList.add('hit'); setTimeout(() => el.classList.remove('hit'), 90);
+    if (!buf) { if (!pads[id].blob) { setEditing(true); openEditor(id); } return; }
+    // Tap again while playing = restart (classic pad behaviour)
+    el.classList.add('playing');
+    const bar = el.querySelector('.progress');
+    const startedAt = audioCtx().currentTime;
+    const src = play(id, buf, () => { if (!sources[id]) { el.classList.remove('playing'); bar.style.width = '0'; } });
+    (function tick() {
+      if (sources[id] !== src) return;
+      const pct = Math.min(1, (ctx.currentTime - startedAt) / buf.duration);
+      bar.style.width = (pct * 100) + '%';
+      requestAnimationFrame(tick);
+    })();
+  }
+
+  function setEditing(on) {
+    editing = on;
+    document.body.classList.toggle('editing', on);
+    document.getElementById('editToggle').classList.toggle('active', on);
+    document.getElementById('editToggle').textContent = on ? '✓ Listo' : '✎ Editar';
+    render();
+  }
+  document.getElementById('editToggle').onclick = () => setEditing(!editing);
+  document.getElementById('stopAll').onclick = () => {
+    Object.keys(sources).forEach(stop);
+    document.querySelectorAll('.pad').forEach(p => { p.classList.remove('playing'); p.querySelector('.progress').style.width = '0'; });
+  };
+
+  // Keyboard shortcuts: 1-6 or Q W E / A S D
+  const KEYS = { '1':0,'2':1,'3':2,'4':3,'5':4,'6':5, q:0,w:1,e:2,a:3,s:4,d:5 };
+  document.addEventListener('keydown', e => {
+    if (editing || e.repeat || document.getElementById('editor').open) return;
+    const id = KEYS[e.key.toLowerCase()];
+    if (id !== undefined) trigger(id, grid.children[id]);
+  });
+
+  // ---------- Editor ----------
+  const dlg = document.getElementById('editor');
+  const nameInput = document.getElementById('padName');
+  const swatchBox = document.getElementById('swatches');
+  const fileInput = document.getElementById('fileInput');
+  const fileInfo = document.getElementById('fileInfo');
+  const recordBtn = document.getElementById('recordBtn');
+  let draft = null, draftBuffer = null, recorder = null;
+
+  COLORS.forEach(c => {
+    const s = document.createElement('button');
+    s.type = 'button'; s.className = 'swatch'; s.style.setProperty('--c', c); s.dataset.c = c;
+    s.setAttribute('aria-label', 'Color ' + c);
+    s.onclick = () => { draft.color = c; markSwatch(); };
+    swatchBox.appendChild(s);
+  });
+  function markSwatch() { [...swatchBox.children].forEach(s => s.classList.toggle('sel', s.dataset.c === draft.color)); }
+
+  function updateFileInfo() {
+    if (!draft.blob) { fileInfo.textContent = 'Este pad aún no tiene sonido.'; return; }
+    fileInfo.textContent = '🎵 ' + (draft.fileName || 'sonido') + (draftBuffer ? ' · ' + fmtDur(draftBuffer.duration) : '');
+  }
+
+  function openEditor(id) {
+    const p = pads[id];
+    draft = { ...p };
+    draftBuffer = buffers[id] || null;
+    document.getElementById('editorTitle').textContent = 'Editar pad ' + (id + 1);
+    nameInput.value = p.name || '';
+    nameInput.placeholder = DEFAULT_NAMES[id];
+    markSwatch(); updateFileInfo();
+    dlg.showModal();
+  }
+
+  async function setDraftSound(blob, fileName) {
+    try {
+      fileInfo.textContent = 'Procesando…';
+      draftBuffer = await decode(blob);
+      draft.blob = blob; draft.fileName = fileName;
+      if (!nameInput.value.trim()) nameInput.value = fileName.replace(/\.[^.]+$/, '').slice(0, 30);
+    } catch (e) {
+      alert('No se pudo leer ese archivo de audio. Prueba con MP3, WAV, OGG o M4A.');
+    }
+    updateFileInfo();
+  }
+
+  document.getElementById('pickFile').onclick = () => fileInput.click();
+  fileInput.onchange = () => { const f = fileInput.files[0]; if (f) setDraftSound(f, f.name); fileInput.value = ''; };
+
+  recordBtn.onclick = async () => {
+    if (recorder && recorder.state === 'recording') { recorder.stop(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const chunks = [];
+      recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = e => chunks.push(e.data);
+      recorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        recordBtn.textContent = '🎙️ Grabar'; recordBtn.classList.remove('rec');
+        setDraftSound(new Blob(chunks, { type: recorder.mimeType }), 'Grabación');
+      };
+      recorder.start();
+      recordBtn.textContent = '⏺ Detener'; recordBtn.classList.add('rec');
+      fileInfo.textContent = 'Grabando… pulsa «Detener» para terminar.';
+    } catch (e) {
+      alert('No se pudo acceder al micrófono.');
+    }
+  };
+
+  document.getElementById('previewBtn').onclick = () => { if (draftBuffer) play('preview', draftBuffer); };
+  document.getElementById('clearSound').onclick = () => { draft.blob = null; draft.fileName = null; draftBuffer = null; stop('preview'); updateFileInfo(); };
+
+  function closeEditor() {
+    if (recorder && recorder.state === 'recording') { recorder.onstop = null; recorder.stop(); recorder.stream.getTracks().forEach(t => t.stop()); recordBtn.textContent = '🎙️ Grabar'; recordBtn.classList.remove('rec'); }
+    stop('preview'); dlg.close();
+  }
+  document.getElementById('cancelBtn').onclick = closeEditor;
+  dlg.addEventListener('cancel', e => { e.preventDefault(); closeEditor(); });
+
+  document.getElementById('editorForm').onsubmit = async e => {
+    e.preventDefault();
+    draft.name = nameInput.value.trim();
+    stop(draft.id);
+    pads[draft.id] = draft;
+    if (draftBuffer) buffers[draft.id] = draftBuffer; else delete buffers[draft.id];
+    await dbPut(draft);
+    closeEditor(); render();
+  };
+
+  // ---------- Init ----------
+  (async () => {
+    const saved = await dbGetAll().catch(() => []);
+    pads = Array.from({ length: PAD_COUNT }, (_, i) =>
+      saved.find(p => p.id === i) || { id: i, name: '', color: COLORS[i], blob: null, fileName: null });
+    render();
+    if (saved.some(p => p.blob)) document.getElementById('hint').textContent = 'Toca un pad para reproducirlo · Teclas 1–6 o Q W E / A S D';
+    for (const p of pads) {
+      if (p.blob) { try { buffers[p.id] = await decode(p.blob); } catch (e) {} }
+    }
+    render();
+  })();
+})();
+</script>
+</body>
+</html>
